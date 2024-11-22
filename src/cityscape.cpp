@@ -21,6 +21,7 @@ float cameraX = 0.0f, cameraY = 0.0f, cameraZ = 3.0f;  // Initial camera positio
 float cameraSpeed = 0.05f;                             // Movement speed
 
 void processInput(GLFWwindow* window) {
+    // Horizontal and forward/backward movement
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
         cameraZ -= cameraSpeed;
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
@@ -29,6 +30,12 @@ void processInput(GLFWwindow* window) {
         cameraX -= cameraSpeed;
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         cameraX += cameraSpeed;
+
+    // Vertical movement
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+        cameraY += cameraSpeed;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+        cameraY -= cameraSpeed;
 }
 
 // Vertex Shader source code
@@ -72,7 +79,7 @@ int main() {
     // Set OpenGL version and profile
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_CORE_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create a window
     GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Textured Cube with Camera", nullptr, nullptr);
