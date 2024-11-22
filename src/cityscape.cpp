@@ -11,35 +11,86 @@
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
+// Camera variables
+glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 3.0f);
+glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
+glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
+
+float yaw = -90.0f;              // Initial yaw (looking forward along -Z)
+float pitch = 0.0f;              // Initial pitch
+float lastX = SCR_WIDTH / 2.0f;  // Mouse x-center
+float lastY = SCR_HEIGHT / 2.0f; // Mouse y-center
+bool firstMouse = true;          // Track if it's the first mouse movement
+float cameraSpeed = 5.0f;        // Movement speed in world units/second
+
 // Callback for resizing the window
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+void framebuffer_size_callback(GLFWwindow *window, int width, int height)
+{
     glViewport(0, 0, width, height);
 }
 
-// Input processing
-float cameraX = 0.0f, cameraY = 0.0f, cameraZ = 3.0f;  // Initial camera position
-float cameraSpeed = 0.05f;                             // Movement speed
+// Mouse callback for camera rotation
+void mouse_callback(GLFWwindow *window, double xpos, double ypos)
+{
+    if (firstMouse)
+    {
+        lastX = xpos;
+        lastY = ypos;
+        firstMouse = false;
+    }
 
-void processInput(GLFWwindow* window) {
-    // Horizontal and forward/backward movement
+    float xoffset = xpos - lastX;
+    float yoffset = lastY - ypos; // Reversed since y-coordinates go from bottom to top
+    lastX = xpos;
+    lastY = ypos;
+
+    float sensitivity = 0.2f; // Mouse sensitivity
+    xoffset *= sensitivity;
+    yoffset *= sensitivity;
+
+    yaw += xoffset;
+    pitch += yoffset;
+
+    // Constrain the pitch to avoid flipping
+    if (pitch > 89.0f)
+        pitch = 89.0f;
+    if (pitch < -89.0f)
+        pitch = -89.0f;
+
+    // Update the camera direction
+    glm::vec3 front;
+    front.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
+    front.y = sin(glm::radians(pitch));
+    front.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
+    cameraFront = glm::normalize(front);
+}
+
+// Process keyboard input
+void processInput(GLFWwindow *window, float deltaTime)
+{
+    float velocity = cameraSpeed * deltaTime;
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        cameraZ -= cameraSpeed;
+        cameraPos += cameraFront * velocity;
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        cameraZ += cameraSpeed;
+        cameraPos -= cameraFront * velocity;
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        cameraX -= cameraSpeed;
+        cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * velocity;
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        cameraX += cameraSpeed;
+        cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * velocity;
 
     // Vertical movement
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-        cameraY += cameraSpeed;
+        cameraPos += cameraUp * velocity;
     if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-        cameraY -= cameraSpeed;
+        cameraPos -= cameraUp * velocity;
+
+    // Escape to close the window
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+    glfwSetWindowShouldClose(window, true);
 }
 
 // Vertex Shader source code
-const char* vertexShaderSource = R"(
+const char *vertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aTexCoord;
@@ -57,7 +108,7 @@ void main() {
 )";
 
 // Fragment Shader source code
-const char* fragmentShaderSource = R"(
+const char *fragmentShaderSource = R"(
 #version 330 core
 out vec4 FragColor;
 
@@ -69,9 +120,11 @@ void main() {
 }
 )";
 
-int main() {
+int main()
+{
     // Initialize GLFW
-    if (!glfwInit()) {
+    if (!glfwInit())
+    {
         std::cerr << "Failed to initialize GLFW" << std::endl;
         return -1;
     }
@@ -79,11 +132,12 @@ int main() {
     // Set OpenGL version and profile
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_CORE_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    // glfwWindowHint(GLFW_OPENGL_CORE_PROFILE);
 
     // Create a window
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Textured Cube with Camera", nullptr, nullptr);
-    if (!window) {
+    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Textured Cube with Camera", nullptr, nullptr);
+    if (!window)
+    {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
         return -1;
@@ -92,7 +146,8 @@ int main() {
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     // Load GLAD
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    {
         std::cerr << "Failed to initialize GLAD" << std::endl;
         return -1;
     }
@@ -131,8 +186,7 @@ int main() {
         0, 4, 7, 7, 3, 0,
         1, 5, 6, 6, 2, 1,
         3, 7, 6, 6, 2, 3,
-        0, 4, 5, 5, 1, 0
-    };
+        0, 4, 5, 5, 1, 0};
 
     // Create buffers
     unsigned int VAO, VBO, EBO;
@@ -148,10 +202,10 @@ int main() {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
 
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
     // Load texture
@@ -165,11 +219,14 @@ int main() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     int width, height, nrChannels;
-    unsigned char* data = stbi_load("brick.jpg", &width, &height, &nrChannels, 0);
-    if (data) {
+    unsigned char *data = stbi_load("brick.jpg", &width, &height, &nrChannels, 0);
+    if (data)
+    {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
         glGenerateMipmap(GL_TEXTURE_2D);
-    } else {
+    }
+    else
+    {
         std::cerr << "Failed to load texture" << std::endl;
     }
     stbi_image_free(data);
@@ -177,9 +234,25 @@ int main() {
     // Enable depth testing
     glEnable(GL_DEPTH_TEST);
 
+    // Register mouse callback
+    glfwSetCursorPosCallback(window, mouse_callback);
+
+    // Hide and capture the mouse cursor
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+    float deltaTime = 0.0f; // Time between current frame and last frame
+    float lastFrame = 0.0f;
+
     // Main render loop
-    while (!glfwWindowShouldClose(window)) {
-        processInput(window);
+    while (!glfwWindowShouldClose(window))
+    {
+        // Calculate delta time
+        float currentFrame = glfwGetTime();
+        deltaTime = currentFrame - lastFrame;
+        lastFrame = currentFrame;
+
+        // Process input
+        processInput(window, deltaTime);
 
         // Clear buffers
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
@@ -192,7 +265,7 @@ int main() {
         glUseProgram(shaderProgram);
 
         // Camera and projection matrices
-        glm::mat4 view = glm::translate(glm::mat4(1.0f), glm::vec3(-cameraX, -cameraY, -cameraZ));
+        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
 
         // Set shader uniforms
