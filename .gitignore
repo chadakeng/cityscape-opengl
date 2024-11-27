@@ -62,6 +62,9 @@
 .vscode/
 .idea/
 
+# Visual Studio temporary files
+.vs/
+
 # Log files
 *.log
 
