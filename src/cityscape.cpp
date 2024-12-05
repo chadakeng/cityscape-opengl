@@ -10,20 +10,17 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "tinygltf/stb_image.h"
-
 // Constants for screen dimensions
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
 // Camera variables
-glm::vec3 cameraPos = glm::vec3(0.0f, 10.0f, 60.0f); // Moved closer to the sun
-glm::vec3 cameraFront = glm::vec3(0.0f, -0.1f, -1.0f);
+glm::vec3 cameraPos = glm::vec3(0.0f, 30.0f, 200.0f); // Moved farther back to see all planets
+glm::vec3 cameraFront = glm::normalize(glm::vec3(0.0f, -0.2f, -1.0f)); // Looking slightly downward toward the sun
 glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
 float yaw = -90.0f;
-float pitch = -5.0f;
+float pitch = -11.5f; // Adjusted pitch to match cameraFront
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
@@ -34,7 +31,7 @@ float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
 // Planets rotation
-float planetRotation = 0.0f;
+float planetRotation = 0.0f; // Start with planets on the same side
 
 // Function prototypes
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -120,7 +117,7 @@ void main() {
 }
 )";
 
-// **Star Vertex Shader (Added)**
+// Star Vertex Shader
 const char* starVertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
@@ -133,7 +130,7 @@ void main() {
 }
 )";
 
-// **Star Fragment Shader (Added)**
+// Star Fragment Shader
 const char* starFragmentShaderSource = R"(
 #version 330 core
 out vec4 FragColor;
@@ -158,7 +155,7 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_CORE_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create a window
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Solar System with Lighting", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Solar System Simulation", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -199,7 +196,7 @@ int main() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // **Compile sun shaders** (Added)
+    // Compile sun shaders
     GLuint sunVertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(sunVertexShader, 1, &sunVertexShaderSource, nullptr);
     glCompileShader(sunVertexShader);
@@ -210,7 +207,7 @@ int main() {
     glCompileShader(sunFragmentShader);
     checkShaderCompilation(sunFragmentShader);
 
-    // **Link sun shader program** (Added)
+    // Link sun shader program
     GLuint sunShaderProgram = glCreateProgram();
     glAttachShader(sunShaderProgram, sunVertexShader);
     glAttachShader(sunShaderProgram, sunFragmentShader);
@@ -219,7 +216,7 @@ int main() {
     glDeleteShader(sunVertexShader);
     glDeleteShader(sunFragmentShader);
 
-    // **Compile star shaders** (Added)
+    // Compile star shaders
     GLuint starVertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(starVertexShader, 1, &starVertexShaderSource, nullptr);
     glCompileShader(starVertexShader);
@@ -230,7 +227,7 @@ int main() {
     glCompileShader(starFragmentShader);
     checkShaderCompilation(starFragmentShader);
 
-    // **Link star shader program** (Added)
+    // Link star shader program
     GLuint starShaderProgram = glCreateProgram();
     glAttachShader(starShaderProgram, starVertexShader);
     glAttachShader(starShaderProgram, starFragmentShader);
@@ -269,9 +266,9 @@ int main() {
     std::vector<float> starVertices;
     int numStars = 2000; // Increased number of stars
     for (int i = 0; i < numStars; ++i) {
-        float x = ((rand() % 400) - 200) / 1.0f; // Increased range
-        float y = ((rand() % 400) - 200) / 1.0f;
-        float z = ((rand() % 400) - 200) / 1.0f;
+        float x = ((rand() % 800) - 400) / 1.0f; // Increased range
+        float y = ((rand() % 800) - 400) / 1.0f;
+        float z = ((rand() % 800) - 400) / 1.0f;
         starVertices.push_back(x);
         starVertices.push_back(y);
         starVertices.push_back(z);
@@ -292,7 +289,7 @@ int main() {
     glEnableVertexAttribArray(0);
 
     // Scaling factors
-    float distanceScale = 50.0f / 30.05f; // Scale Neptune's distance to 50 units
+    float distanceScale = 20.0f; // Increased to spread out planets more
 
     // Planet data: scaled distance from sun, size, angular speed, color, tilt
     struct Planet {
@@ -322,6 +319,13 @@ int main() {
         {30.05f * distanceScale, 0.95f, 0.006f, glm::vec3(0.3f, 0.5f, 0.9f), 28.3f},
     };
 
+    // Adjust orbit speeds for visibility
+    for (auto& planet : planets) {
+        if (planet.orbitSpeed < 0.1f) {
+            planet.orbitSpeed *= 100.0f; // Increase factor to 100 for faster orbit
+        }
+    }
+
     // Enable depth test
     glEnable(GL_DEPTH_TEST);
 
@@ -343,10 +347,10 @@ int main() {
 
         // Set view and projection matrices
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f),
-            (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 500.0f); // Increased far plane
+        glm::mat4 projection = glm::perspective(glm::radians(60.0f),
+            (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f); // Increased far plane to 1000
 
-        // **Draw stars using the star shader program** (Modified)
+        // Draw stars using the star shader program
         glUseProgram(starShaderProgram);
         int starViewLoc = glGetUniformLocation(starShaderProgram, "view");
         int starProjectionLoc = glGetUniformLocation(starShaderProgram, "projection");
@@ -360,7 +364,7 @@ int main() {
         glPointSize(2.0f); // Increased point size
         glDrawArrays(GL_POINTS, 0, numStars);
 
-        // **Draw sun using the sun shader program** (Modified)
+        // Draw sun using the sun shader program
         glUseProgram(sunShaderProgram);
         int sunModelLoc = glGetUniformLocation(sunShaderProgram, "model");
         int sunViewLoc = glGetUniformLocation(sunShaderProgram, "view");
@@ -371,7 +375,7 @@ int main() {
         glUniformMatrix4fv(sunProjectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
         glm::mat4 model = glm::mat4(1.0f);
-        model = glm::scale(model, glm::vec3(5.0f)); // Increased sun size for visibility
+        model = glm::scale(model, glm::vec3(2.0f)); // Reduced sun size
         glUniformMatrix4fv(sunModelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
         glUniform3f(sunColorLoc, 1.0f, 0.9f, 0.0f); // Yellow sun
@@ -391,6 +395,9 @@ int main() {
         int modelLoc = glGetUniformLocation(shaderProgram, "model");
         int colorLoc = glGetUniformLocation(shaderProgram, "objectColor");
 
+        // Planet self-rotation speed
+        float selfRotationSpeed = deltaTime * 50.0f; // Adjust for desired rotation speed
+
         for (const auto& planet : planets) {
             model = glm::mat4(1.0f);
             float angle = planetRotation * planet.orbitSpeed;
@@ -398,14 +405,20 @@ int main() {
             model = glm::translate(model, glm::vec3(planet.distance, 0.0f, 0.0f));
             model = glm::rotate(model, glm::radians(planet.tilt), glm::vec3(0.0f, 0.0f, 1.0f)); // Planet tilt
 
-            // **Increase size of inner planets for visibility** (Modified)
-            float sizeMultiplier = (planet.distance < 10.0f) ? 3.0f : 1.5f;
+            // Planet self-rotation
+            float rotationAngle = currentFrame * planet.orbitSpeed * 10.0f; // Adjust rotation speed
+            model = glm::rotate(model, rotationAngle, glm::vec3(0.0f, 1.0f, 0.0f));
+
+            // Adjust size multiplier
+            float sizeMultiplier = 2.0f; // Adjusted planet sizes
+
             model = glm::scale(model, glm::vec3(planet.size * sizeMultiplier));
 
             glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
             glUniform3fv(colorLoc, 1, glm::value_ptr(planet.color));
 
+            glBindVertexArray(sphereVAO);
             glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(sphereIndices.size()), GL_UNSIGNED_INT, 0);
         }
 
@@ -422,8 +435,8 @@ int main() {
     glDeleteBuffers(1, &starsVBO);
 
     glDeleteProgram(shaderProgram);
-    glDeleteProgram(sunShaderProgram); // **Delete sun shader program**
-    glDeleteProgram(starShaderProgram); // **Delete star shader program**
+    glDeleteProgram(sunShaderProgram); // Delete sun shader program
+    glDeleteProgram(starShaderProgram); // Delete star shader program
 
     glfwTerminate();
     return 0;
