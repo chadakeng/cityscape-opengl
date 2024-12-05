@@ -18,16 +18,16 @@ const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
 // Camera variables
-glm::vec3 cameraPos = glm::vec3(0.0f, 30.0f, 250.0f); // Moved farther back to see all planets
-glm::vec3 cameraFront = glm::normalize(glm::vec3(0.0f, -0.1f, -1.0f)); // Looking slightly downward toward the sun
+glm::vec3 cameraPos = glm::vec3(-1200.0f, 200.0f, 0.0f); // Moved camera along negative x-axis
+glm::vec3 cameraFront = glm::normalize(glm::vec3(1.0f, -0.1f, 0.0f)); // Looking towards positive x-axis
 glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
-float yaw = -90.0f;
-float pitch = -5.5f; // Adjusted pitch to match cameraFront
+float yaw = 0.0f;
+float pitch = -5.0f; // Slight downward angle
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
-float cameraSpeed = 20.0f; // Movement speed in world units/second
+float cameraSpeed = 200.0f; // Increased movement speed
 
 // Timing
 float deltaTime = 0.0f;
@@ -44,6 +44,7 @@ void generateSphere(float radius, unsigned int rings, unsigned int sectors,
     std::vector<float>& vertices, std::vector<unsigned int>& indices);
 void checkShaderCompilation(GLuint shader);
 void checkProgramLinking(GLuint program);
+void generateCircle(float radius, int segments, std::vector<float>& vertices);
 
 // Vertex Shader source code (with normals)
 const char* vertexShaderSource = R"(
@@ -145,6 +146,32 @@ void main() {
 }
 )";
 
+// Orbit Vertex Shader
+const char* orbitVertexShaderSource = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
+void main() {
+    gl_Position = projection * view * model * vec4(aPos, 1.0);
+}
+)";
+
+// Orbit Fragment Shader
+const char* orbitFragmentShaderSource = R"(
+#version 330 core
+out vec4 FragColor;
+
+uniform vec3 orbitColor;
+
+void main() {
+    FragColor = vec4(orbitColor, 1.0);
+}
+)";
+
 int main() {
     // Initialize GLFW
     if (!glfwInit()) {
@@ -158,7 +185,7 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_CORE_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create a window
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Solar System with Lighting", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Solar System with Corrected Scaling", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -180,6 +207,7 @@ int main() {
     }
 
     // Compile shaders
+    // Planet shaders
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, nullptr);
     glCompileShader(vertexShader);
@@ -199,7 +227,7 @@ int main() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Compile sun shaders
+    // Sun shaders
     GLuint sunVertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(sunVertexShader, 1, &sunVertexShaderSource, nullptr);
     glCompileShader(sunVertexShader);
@@ -210,7 +238,6 @@ int main() {
     glCompileShader(sunFragmentShader);
     checkShaderCompilation(sunFragmentShader);
 
-    // Link sun shader program
     GLuint sunShaderProgram = glCreateProgram();
     glAttachShader(sunShaderProgram, sunVertexShader);
     glAttachShader(sunShaderProgram, sunFragmentShader);
@@ -219,7 +246,7 @@ int main() {
     glDeleteShader(sunVertexShader);
     glDeleteShader(sunFragmentShader);
 
-    // Compile star shaders
+    // Star shaders
     GLuint starVertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(starVertexShader, 1, &starVertexShaderSource, nullptr);
     glCompileShader(starVertexShader);
@@ -230,7 +257,6 @@ int main() {
     glCompileShader(starFragmentShader);
     checkShaderCompilation(starFragmentShader);
 
-    // Link star shader program
     GLuint starShaderProgram = glCreateProgram();
     glAttachShader(starShaderProgram, starVertexShader);
     glAttachShader(starShaderProgram, starFragmentShader);
@@ -238,6 +264,25 @@ int main() {
     checkProgramLinking(starShaderProgram);
     glDeleteShader(starVertexShader);
     glDeleteShader(starFragmentShader);
+
+    // Orbit shaders
+    GLuint orbitVertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(orbitVertexShader, 1, &orbitVertexShaderSource, nullptr);
+    glCompileShader(orbitVertexShader);
+    checkShaderCompilation(orbitVertexShader);
+
+    GLuint orbitFragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(orbitFragmentShader, 1, &orbitFragmentShaderSource, nullptr);
+    glCompileShader(orbitFragmentShader);
+    checkShaderCompilation(orbitFragmentShader);
+
+    GLuint orbitShaderProgram = glCreateProgram();
+    glAttachShader(orbitShaderProgram, orbitVertexShader);
+    glAttachShader(orbitShaderProgram, orbitFragmentShader);
+    glLinkProgram(orbitShaderProgram);
+    checkProgramLinking(orbitShaderProgram);
+    glDeleteShader(orbitVertexShader);
+    glDeleteShader(orbitFragmentShader);
 
     // Generate sphere data for sun and planets (with normals)
     std::vector<float> sphereVertices;
@@ -267,11 +312,11 @@ int main() {
 
     // Generate stars data
     std::vector<float> starVertices;
-    int numStars = 2000; // Increased number of stars
+    int numStars = 8000; // Increased number of stars
     for (int i = 0; i < numStars; ++i) {
-        float x = ((rand() % 800) - 400) / 1.0f; // Increased range
-        float y = ((rand() % 800) - 400) / 1.0f;
-        float z = ((rand() % 800) - 400) / 1.0f;
+        float x = ((rand() % 4000) - 2000) / 1.0f; // Increased range
+        float y = ((rand() % 4000) - 2000) / 1.0f;
+        float z = ((rand() % 4000) - 2000) / 1.0f;
         starVertices.push_back(x);
         starVertices.push_back(y);
         starVertices.push_back(z);
@@ -292,7 +337,7 @@ int main() {
     glEnableVertexAttribArray(0);
 
     // Scaling factors
-    float distanceScale = 200.0f / 30.05f; // Increase distances to prevent planets from being inside the sun
+    float distanceScale = 1000.0f / 30.05f; // Adjusted to space out planets further
 
     // Planet data: scaled distance from sun, size, angular speed, color, tilt
     struct Planet {
@@ -301,36 +346,52 @@ int main() {
         float orbitSpeed;
         glm::vec3 color;
         float tilt;
+        GLuint orbitVAO; // For orbit path
+        GLuint orbitVBO;
+        int orbitVertexCount;
     };
 
     std::vector<Planet> planets = {
-        // Mercury - closest to sun, smallest planet
+        // Mercury
         {0.39f * distanceScale, 0.02f, 1.607f, glm::vec3(0.7f, 0.7f, 0.7f), 0.034f},
-
-        // Venus - similar orbit to Mercury
+        // Venus
         {0.72f * distanceScale, 0.03f, 1.174f, glm::vec3(0.9f, 0.7f, 0.3f), 177.4f},
-
-        // Earth - our home planet
+        // Earth
         {1.00f * distanceScale, 0.04f, 1.0f, glm::vec3(0.2f, 0.5f, 1.0f), 23.5f},
-
-        // Mars - reddish, smaller than Earth
+        // Mars
         {1.52f * distanceScale, 0.025f, 0.802f, glm::vec3(0.8f, 0.3f, 0.2f), 25.0f},
-
-        // Jupiter - large gas giant
+        // Jupiter
         {5.20f * distanceScale, 0.12f, 0.434f, glm::vec3(0.9f, 0.6f, 0.3f), 3.1f},
-
-        // Saturn - with prominent rings
+        // Saturn
         {9.58f * distanceScale, 0.10f, 0.323f, glm::vec3(0.9f, 0.8f, 0.5f), 26.7f},
-
-        // Uranus - blue-green ice giant
+        // Uranus
         {19.20f * distanceScale, 0.045f, 0.228f, glm::vec3(0.5f, 0.8f, 0.9f), 97.8f},
-
-        // Neptune - furthest planet
+        // Neptune
         {30.05f * distanceScale, 0.04f, 0.182f, glm::vec3(0.3f, 0.5f, 0.9f), 28.3f}
     };
 
+    // Generate orbit paths for planets
+    for (auto& planet : planets) {
+        std::vector<float> orbitVertices;
+        int segments = 200;
+        generateCircle(planet.distance, segments, orbitVertices);
+        planet.orbitVertexCount = segments;
+
+        glGenVertexArrays(1, &planet.orbitVAO);
+        glGenBuffers(1, &planet.orbitVBO);
+
+        glBindVertexArray(planet.orbitVAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, planet.orbitVBO);
+        glBufferData(GL_ARRAY_BUFFER, orbitVertices.size() * sizeof(float), orbitVertices.data(), GL_STATIC_DRAW);
+
+        // Position attribute
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+        glEnableVertexAttribArray(0);
+    }
+
     // Global speed factors for orbit and self-rotation
-    float globalOrbitSpeedFactor = 0.2f; // Slow down overall orbital motion
+    float globalOrbitSpeedFactor = 0.05f; // Slower orbital motion
     float globalSelfRotationSpeedFactor = 5.0f; // Adjust self-rotation
 
     // Enable depth test
@@ -354,8 +415,8 @@ int main() {
 
         // Set view and projection matrices
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
-        glm::mat4 projection = glm::perspective(glm::radians(60.0f), // Increased FOV to 60 degrees
-            (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f); // Increased far plane to 1000
+        glm::mat4 projection = glm::perspective(glm::radians(60.0f),
+            (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 10000.0f); // Increased far plane
 
         // Draw stars using the star shader program
         glUseProgram(starShaderProgram);
@@ -371,6 +432,25 @@ int main() {
         glPointSize(2.0f); // Increased point size
         glDrawArrays(GL_POINTS, 0, numStars);
 
+        // Draw orbits
+        glUseProgram(orbitShaderProgram);
+        int orbitModelLoc = glGetUniformLocation(orbitShaderProgram, "model");
+        int orbitViewLoc = glGetUniformLocation(orbitShaderProgram, "view");
+        int orbitProjectionLoc = glGetUniformLocation(orbitShaderProgram, "projection");
+        int orbitColorLoc = glGetUniformLocation(orbitShaderProgram, "orbitColor");
+
+        glUniformMatrix4fv(orbitViewLoc, 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(orbitProjectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+        glUniform3f(orbitColorLoc, 1.0f, 1.0f, 1.0f); // White orbit paths
+
+        for (const auto& planet : planets) {
+            glm::mat4 model = glm::mat4(1.0f);
+            glUniformMatrix4fv(orbitModelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
+            glBindVertexArray(planet.orbitVAO);
+            glDrawArrays(GL_LINE_LOOP, 0, planet.orbitVertexCount);
+        }
+
         // Draw sun using the sun shader program
         glUseProgram(sunShaderProgram);
         int sunModelLoc = glGetUniformLocation(sunShaderProgram, "model");
@@ -382,7 +462,7 @@ int main() {
         glUniformMatrix4fv(sunProjectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
         glm::mat4 model = glm::mat4(1.0f);
-        model = glm::scale(model, glm::vec3(2.0f)); // Reduced sun size
+        model = glm::scale(model, glm::vec3(20.0f)); // Adjusted sun size
         glUniformMatrix4fv(sunModelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
         glUniform3f(sunColorLoc, 1.0f, 0.9f, 0.0f); // Yellow sun
@@ -403,7 +483,7 @@ int main() {
         int colorLoc = glGetUniformLocation(shaderProgram, "objectColor");
 
         // Planet size multiplier
-        float sizeMultiplier = 20.0f; // Increased planet sizes
+        float sizeMultiplier = 10.0f; // Increased planet sizes
 
         for (const auto& planet : planets) {
             model = glm::mat4(1.0f);
@@ -438,9 +518,15 @@ int main() {
     glDeleteVertexArrays(1, &starsVAO);
     glDeleteBuffers(1, &starsVBO);
 
+    for (const auto& planet : planets) {
+        glDeleteVertexArrays(1, &planet.orbitVAO);
+        glDeleteBuffers(1, &planet.orbitVBO);
+    }
+
     glDeleteProgram(shaderProgram);
-    glDeleteProgram(sunShaderProgram); // Delete sun shader program
-    glDeleteProgram(starShaderProgram); // Delete star shader program
+    glDeleteProgram(sunShaderProgram);
+    glDeleteProgram(starShaderProgram);
+    glDeleteProgram(orbitShaderProgram);
 
     glfwTerminate();
     return 0;
@@ -464,7 +550,7 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     lastX = static_cast<float>(xpos);
     lastY = static_cast<float>(ypos);
 
-    float sensitivity = 0.1f; // Reduced mouse sensitivity
+    float sensitivity = 0.1f; // Mouse sensitivity
     xoffset *= sensitivity;
     yoffset *= sensitivity;
 
@@ -546,6 +632,20 @@ void generateSphere(float radius, unsigned int rings, unsigned int sectors,
             indices.push_back((r + 1) * sectors + (s + 1));
             indices.push_back(r * sectors + (s + 1));
         }
+    }
+}
+
+// Function to generate circle vertices for orbit paths
+void generateCircle(float radius, int segments, std::vector<float>& vertices) {
+    const float PI = 3.14159265359f;
+    float angleIncrement = 2.0f * PI / segments;
+    for (int i = 0; i < segments; ++i) {
+        float angle = i * angleIncrement;
+        float x = radius * cos(angle);
+        float z = radius * sin(angle);
+        vertices.push_back(x);
+        vertices.push_back(0.0f);
+        vertices.push_back(z);
     }
 }
 
