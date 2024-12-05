@@ -10,17 +10,20 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "tinygltf/stb_image.h"
+
 // Constants for screen dimensions
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
 // Camera variables
-glm::vec3 cameraPos = glm::vec3(0.0f, 30.0f, 200.0f); // Moved farther back to see all planets
-glm::vec3 cameraFront = glm::normalize(glm::vec3(0.0f, -0.2f, -1.0f)); // Looking slightly downward toward the sun
+glm::vec3 cameraPos = glm::vec3(0.0f, 30.0f, 250.0f); // Moved farther back to see all planets
+glm::vec3 cameraFront = glm::normalize(glm::vec3(0.0f, -0.1f, -1.0f)); // Looking slightly downward toward the sun
 glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
 float yaw = -90.0f;
-float pitch = -11.5f; // Adjusted pitch to match cameraFront
+float pitch = -5.5f; // Adjusted pitch to match cameraFront
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
@@ -155,7 +158,7 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_CORE_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create a window
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Solar System Simulation", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Solar System with Lighting", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -289,7 +292,7 @@ int main() {
     glEnableVertexAttribArray(0);
 
     // Scaling factors
-    float distanceScale = 20.0f; // Increased to spread out planets more
+    float distanceScale = 200.0f / 30.05f; // Increase distances to prevent planets from being inside the sun
 
     // Planet data: scaled distance from sun, size, angular speed, color, tilt
     struct Planet {
@@ -301,30 +304,34 @@ int main() {
     };
 
     std::vector<Planet> planets = {
-        // Mercury
-        {0.39f * distanceScale, 0.5f, 4.15f, glm::vec3(0.5f, 0.5f, 0.5f), 0.0f},
-        // Venus
-        {0.72f * distanceScale, 0.6f, 1.62f, glm::vec3(0.8f, 0.7f, 0.2f), 177.4f},
-        // Earth
-        {1.00f * distanceScale, 0.65f, 1.0f, glm::vec3(0.2f, 0.5f, 1.0f), 23.5f},
-        // Mars
-        {1.52f * distanceScale, 0.55f, 0.53f, glm::vec3(0.8f, 0.4f, 0.2f), 25.0f},
-        // Jupiter
-        {5.20f * distanceScale, 1.5f, 0.084f, glm::vec3(0.9f, 0.6f, 0.3f), 3.1f},
-        // Saturn
-        {9.58f * distanceScale, 1.2f, 0.034f, glm::vec3(0.9f, 0.8f, 0.5f), 26.7f},
-        // Uranus
-        {19.20f * distanceScale, 1.0f, 0.012f, glm::vec3(0.5f, 0.8f, 0.9f), 97.8f},
-        // Neptune
-        {30.05f * distanceScale, 0.95f, 0.006f, glm::vec3(0.3f, 0.5f, 0.9f), 28.3f},
+        // Mercury - closest to sun, smallest planet
+        {0.39f * distanceScale, 0.02f, 1.607f, glm::vec3(0.7f, 0.7f, 0.7f), 0.034f},
+
+        // Venus - similar orbit to Mercury
+        {0.72f * distanceScale, 0.03f, 1.174f, glm::vec3(0.9f, 0.7f, 0.3f), 177.4f},
+
+        // Earth - our home planet
+        {1.00f * distanceScale, 0.04f, 1.0f, glm::vec3(0.2f, 0.5f, 1.0f), 23.5f},
+
+        // Mars - reddish, smaller than Earth
+        {1.52f * distanceScale, 0.025f, 0.802f, glm::vec3(0.8f, 0.3f, 0.2f), 25.0f},
+
+        // Jupiter - large gas giant
+        {5.20f * distanceScale, 0.12f, 0.434f, glm::vec3(0.9f, 0.6f, 0.3f), 3.1f},
+
+        // Saturn - with prominent rings
+        {9.58f * distanceScale, 0.10f, 0.323f, glm::vec3(0.9f, 0.8f, 0.5f), 26.7f},
+
+        // Uranus - blue-green ice giant
+        {19.20f * distanceScale, 0.045f, 0.228f, glm::vec3(0.5f, 0.8f, 0.9f), 97.8f},
+
+        // Neptune - furthest planet
+        {30.05f * distanceScale, 0.04f, 0.182f, glm::vec3(0.3f, 0.5f, 0.9f), 28.3f}
     };
 
-    // Adjust orbit speeds for visibility
-    for (auto& planet : planets) {
-        if (planet.orbitSpeed < 0.1f) {
-            planet.orbitSpeed *= 100.0f; // Increase factor to 100 for faster orbit
-        }
-    }
+    // Global speed factors for orbit and self-rotation
+    float globalOrbitSpeedFactor = 0.2f; // Slow down overall orbital motion
+    float globalSelfRotationSpeedFactor = 5.0f; // Adjust self-rotation
 
     // Enable depth test
     glEnable(GL_DEPTH_TEST);
@@ -336,8 +343,8 @@ int main() {
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        // Update planet rotation (increase speed by 5 times)
-        planetRotation += deltaTime * 5.0f;
+        // Update planet rotation
+        planetRotation += deltaTime * 1.0f; // Base time increment
 
         processInput(window, deltaTime);
 
@@ -347,7 +354,7 @@ int main() {
 
         // Set view and projection matrices
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
-        glm::mat4 projection = glm::perspective(glm::radians(60.0f),
+        glm::mat4 projection = glm::perspective(glm::radians(60.0f), // Increased FOV to 60 degrees
             (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f); // Increased far plane to 1000
 
         // Draw stars using the star shader program
@@ -395,22 +402,19 @@ int main() {
         int modelLoc = glGetUniformLocation(shaderProgram, "model");
         int colorLoc = glGetUniformLocation(shaderProgram, "objectColor");
 
-        // Planet self-rotation speed
-        float selfRotationSpeed = deltaTime * 50.0f; // Adjust for desired rotation speed
+        // Planet size multiplier
+        float sizeMultiplier = 20.0f; // Increased planet sizes
 
         for (const auto& planet : planets) {
             model = glm::mat4(1.0f);
-            float angle = planetRotation * planet.orbitSpeed;
+            float angle = planetRotation * planet.orbitSpeed * globalOrbitSpeedFactor;
             model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
             model = glm::translate(model, glm::vec3(planet.distance, 0.0f, 0.0f));
-            model = glm::rotate(model, glm::radians(planet.tilt), glm::vec3(0.0f, 0.0f, 1.0f)); // Planet tilt
+            model = glm::rotate(model, glm::radians(planet.tilt), glm::vec3(0.0f, 0.0f, 1.0f));
 
             // Planet self-rotation
-            float rotationAngle = currentFrame * planet.orbitSpeed * 10.0f; // Adjust rotation speed
+            float rotationAngle = currentFrame * planet.orbitSpeed * globalSelfRotationSpeedFactor;
             model = glm::rotate(model, rotationAngle, glm::vec3(0.0f, 1.0f, 0.0f));
-
-            // Adjust size multiplier
-            float sizeMultiplier = 2.0f; // Adjusted planet sizes
 
             model = glm::scale(model, glm::vec3(planet.size * sizeMultiplier));
 
