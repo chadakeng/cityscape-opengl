@@ -18,7 +18,7 @@ const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
 // Camera variables
-glm::vec3 cameraPos = glm::vec3(-1200.0f, 200.0f, 0.0f); // Moved camera along negative x-axis
+glm::vec3 cameraPos = glm::vec3(-1200.0f, 200.0f, 0.0f);
 glm::vec3 cameraFront = glm::normalize(glm::vec3(1.0f, -0.1f, 0.0f)); // Looking towards positive x-axis
 glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
@@ -45,6 +45,62 @@ void generateSphere(float radius, unsigned int rings, unsigned int sectors,
 void checkShaderCompilation(GLuint shader);
 void checkProgramLinking(GLuint program);
 void generateCircle(float radius, int segments, std::vector<float>& vertices);
+
+// --------------------- Added ring generation function -----------------------
+void generateRing(float innerRadius, float outerRadius, int segments,
+    std::vector<float>& vertices, std::vector<unsigned int>& indices) {
+    float angleIncrement = 2.0f * glm::pi<float>() / segments;
+    // We will generate a triangle strip of outer/inner vertices
+    // Each segment generates two vertices on the outer radius and two on the inner radius
+    // We'll also provide normals pointing upward (0,1,0) since it's flat on the XZ plane.
+
+    for (int i = 0; i <= segments; ++i) {
+        float angle = i * angleIncrement;
+        float x = cos(angle);
+        float z = sin(angle);
+
+        // Outer vertex position
+        float xOuter = x * outerRadius;
+        float zOuter = z * outerRadius;
+        // Inner vertex position
+        float xInner = x * innerRadius;
+        float zInner = z * innerRadius;
+
+        // Normal for both inner and outer vertices is up (0,1,0)
+        float nx = 0.0f;
+        float ny = 1.0f;
+        float nz = 0.0f;
+
+        // Outer vertex
+        vertices.push_back(xOuter);
+        vertices.push_back(0.0f);
+        vertices.push_back(zOuter);
+        vertices.push_back(nx);
+        vertices.push_back(ny);
+        vertices.push_back(nz);
+
+        // Inner vertex
+        vertices.push_back(xInner);
+        vertices.push_back(0.0f);
+        vertices.push_back(zInner);
+        vertices.push_back(nx);
+        vertices.push_back(ny);
+        vertices.push_back(nz);
+    }
+
+    // Create indices for a triangle strip
+    for (int i = 0; i < segments; ++i) {
+        int start = i * 2;
+        indices.push_back(start);
+        indices.push_back(start + 1);
+        indices.push_back(start + 2);
+
+        indices.push_back(start + 1);
+        indices.push_back(start + 3);
+        indices.push_back(start + 2);
+    }
+}
+// ---------------------------------------------------------------------------
 
 // Vertex Shader source code (with normals)
 const char* vertexShaderSource = R"(
@@ -337,7 +393,7 @@ int main() {
     glEnableVertexAttribArray(0);
 
     // Scaling factors
-    float distanceScale = 1000.0f / 30.05f; // Adjusted to space out planets further
+    float distanceScale = 2000.0f / 30.05f; // Spaces out planets further
 
     // Planet data: scaled distance from sun, size, angular speed, color, tilt
     struct Planet {
@@ -353,21 +409,21 @@ int main() {
 
     std::vector<Planet> planets = {
         // Mercury
-        {0.39f * distanceScale, 0.02f, 1.607f, glm::vec3(0.7f, 0.7f, 0.7f), 0.034f},
+        {0.39f * distanceScale, 0.2f, 3.2f, glm::vec3(0.7f, 0.7f, 0.7f), 0.034f},
         // Venus
-        {0.72f * distanceScale, 0.03f, 1.174f, glm::vec3(0.9f, 0.7f, 0.3f), 177.4f},
+        {0.72f * distanceScale, 0.3f, 2.3f, glm::vec3(0.9f, 0.7f, 0.3f), 177.4f},
         // Earth
-        {1.00f * distanceScale, 0.04f, 1.0f, glm::vec3(0.2f, 0.5f, 1.0f), 23.5f},
+        {1.00f * distanceScale, 0.4f, 2.0f, glm::vec3(0.2f, 0.5f, 1.0f), 23.5f},
         // Mars
-        {1.52f * distanceScale, 0.025f, 0.802f, glm::vec3(0.8f, 0.3f, 0.2f), 25.0f},
+        {1.52f * distanceScale, 0.24f, 1.6f, glm::vec3(0.8f, 0.3f, 0.2f), 25.0f},
         // Jupiter
-        {5.20f * distanceScale, 0.12f, 0.434f, glm::vec3(0.9f, 0.6f, 0.3f), 3.1f},
+        {5.20f * distanceScale, 1.2f, 0.8f, glm::vec3(0.9f, 0.6f, 0.3f), 3.1f},
         // Saturn
-        {9.58f * distanceScale, 0.10f, 0.323f, glm::vec3(0.9f, 0.8f, 0.5f), 26.7f},
+        {9.58f * distanceScale, 1.0f, 0.64f, glm::vec3(0.9f, 0.8f, 0.5f), 26.7f},
         // Uranus
-        {19.20f * distanceScale, 0.045f, 0.228f, glm::vec3(0.5f, 0.8f, 0.9f), 97.8f},
+        {19.20f * distanceScale, 0.45f, 0.45f, glm::vec3(0.5f, 0.8f, 0.9f), 97.8f},
         // Neptune
-        {30.05f * distanceScale, 0.04f, 0.182f, glm::vec3(0.3f, 0.5f, 0.9f), 28.3f}
+        {30.05f * distanceScale, 0.4f, 0.36f, glm::vec3(0.3f, 0.5f, 0.9f), 28.3f}
     };
 
     // Generate orbit paths for planets
@@ -389,6 +445,41 @@ int main() {
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
         glEnableVertexAttribArray(0);
     }
+
+    // --------------------- Ring for Saturn ---------------------
+    // We'll assume Saturn is at index 5
+    // We'll create a ring around it
+    // Planet size multiplier later in code is 10.0f, so Saturn's size is 1.0f * 10.0f = 10.0f
+    // We'll define ring inner and outer radius relative to that:
+    float ringInnerRadius = 12.0f;  // Just a bit larger than Saturn
+    float ringOuterRadius = 20.0f;  // Wider ring
+    int ringSegments = 100;
+    std::vector<float> ringVertices;
+    std::vector<unsigned int> ringIndices;
+
+    generateRing(ringInnerRadius, ringOuterRadius, ringSegments, ringVertices, ringIndices);
+
+    GLuint ringVAO, ringVBO, ringEBO;
+    glGenVertexArrays(1, &ringVAO);
+    glGenBuffers(1, &ringVBO);
+    glGenBuffers(1, &ringEBO);
+
+    glBindVertexArray(ringVAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, ringVBO);
+    glBufferData(GL_ARRAY_BUFFER, ringVertices.size() * sizeof(float), ringVertices.data(), GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ringEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, ringIndices.size() * sizeof(unsigned int), ringIndices.data(), GL_STATIC_DRAW);
+
+    // Ring vertex format: position (3 floats) + normal (3 floats) = 6 floats total
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    // -----------------------------------------------------------
 
     // Global speed factors for orbit and self-rotation
     float globalOrbitSpeedFactor = 0.05f; // Slower orbital motion
@@ -462,7 +553,7 @@ int main() {
         glUniformMatrix4fv(sunProjectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
         glm::mat4 model = glm::mat4(1.0f);
-        model = glm::scale(model, glm::vec3(20.0f)); // Adjusted sun size
+        model = glm::scale(model, glm::vec3(40.0f)); // Sun size
         glUniformMatrix4fv(sunModelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
         glUniform3f(sunColorLoc, 1.0f, 0.9f, 0.0f); // Yellow sun
@@ -485,26 +576,82 @@ int main() {
         // Planet size multiplier
         float sizeMultiplier = 10.0f; // Increased planet sizes
 
-        for (const auto& planet : planets) {
-            model = glm::mat4(1.0f);
-            float angle = planetRotation * planet.orbitSpeed * globalOrbitSpeedFactor;
-            model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
-            model = glm::translate(model, glm::vec3(planet.distance, 0.0f, 0.0f));
-            model = glm::rotate(model, glm::radians(planet.tilt), glm::vec3(0.0f, 0.0f, 1.0f));
+        // We'll store Saturn's transform for the ring
+        glm::mat4 saturnModel;
+        glm::vec3 saturnColor;
+        {
+            // Render planets
+            for (size_t i = 0; i < planets.size(); ++i) {
+                const auto& planet = planets[i];
+                model = glm::mat4(1.0f);
+                float angle = planetRotation * planet.orbitSpeed * globalOrbitSpeedFactor;
+                model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
+                model = glm::translate(model, glm::vec3(planet.distance, 0.0f, 0.0f));
+                model = glm::rotate(model, glm::radians(planet.tilt), glm::vec3(0.0f, 0.0f, 1.0f));
 
-            // Planet self-rotation
-            float rotationAngle = currentFrame * planet.orbitSpeed * globalSelfRotationSpeedFactor;
-            model = glm::rotate(model, rotationAngle, glm::vec3(0.0f, 1.0f, 0.0f));
+                // Planet self-rotation
+                float rotationAngle = currentFrame * planet.orbitSpeed * globalSelfRotationSpeedFactor;
+                model = glm::rotate(model, rotationAngle, glm::vec3(0.0f, 1.0f, 0.0f));
 
-            model = glm::scale(model, glm::vec3(planet.size * sizeMultiplier));
+                model = glm::scale(model, glm::vec3(planet.size * sizeMultiplier));
 
-            glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+                glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+                glUniform3fv(colorLoc, 1, glm::value_ptr(planet.color));
 
-            glUniform3fv(colorLoc, 1, glm::value_ptr(planet.color));
+                glBindVertexArray(sphereVAO);
+                glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(sphereIndices.size()), GL_UNSIGNED_INT, 0);
 
-            glBindVertexArray(sphereVAO);
-            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(sphereIndices.size()), GL_UNSIGNED_INT, 0);
+                // If this is Saturn (index 5), save the transform and color for the ring
+                if (i == 5) {
+                    // Saturn was built by: rotate(angle), translate(distance), rotate(tilt), rotate(rotationAngle), scale
+                    // We need the same transformations without the last rotation for self rotation if we don't want the ring spinning oddly.
+                    // If we want ring aligned with planet's equator, we can include all rotations except maybe self rotation if desired.
+                    // Let's keep it simple: include all rotations except the planet's final self-rotation, so the ring stays aligned with the planet.
+                    glm::mat4 saturnBaseModel = glm::mat4(1.0f);
+                    saturnBaseModel = glm::rotate(saturnBaseModel, angle, glm::vec3(0.0f, 1.0f, 0.0f));
+                    saturnBaseModel = glm::translate(saturnBaseModel, glm::vec3(planet.distance, 0.0f, 0.0f));
+                    saturnBaseModel = glm::rotate(saturnBaseModel, glm::radians(planet.tilt), glm::vec3(0.0f, 0.0f, 1.0f));
+                    // We won't apply the final self rotation to the ring, as it can cause visual motion. 
+                    saturnBaseModel = glm::scale(saturnBaseModel, glm::vec3(sizeMultiplier));
+                    saturnModel = saturnBaseModel;
+                    saturnColor = planet.color;
+                }
+            }
         }
+
+        // Draw Saturn's ring using the same shader (shaderProgram)
+        // We'll align it with the planet: same tilt, same orbit position.
+        glUniform3fv(colorLoc, 1, glm::value_ptr(saturnColor));
+
+        glm::mat4 ringModel = saturnModel;
+        // The ring was generated in a flat XZ plane with normal up (Y-axis).
+        // Saturn was tilted; we've included that tilt in saturnModel.
+        // The ring inner/outer radius is already in "world" scale. 
+        // No additional scaling needed, since we scaled saturnModel by sizeMultiplier.
+        // But remember we generated the ring with absolute values. Let's assume we made it relative:
+        // If 12.0f and 20.0f were chosen directly, they are world units. Since saturnModel scaled by 10.0f,
+        // we might consider adjusting the ring generation to smaller values and let model scale do the job.
+        // For now, let's assume we designed ringInnerRadius and ringOuterRadius to final world units.
+        // If we want ring attached to planet scale, we could have chosen smaller numbers and rely on scaling.
+        // For simplicity, we trust ringInnerRadius and ringOuterRadius as final world distances.
+        // Remove scaling from ringModel if we want them as is. We'll just trust them as final size.
+
+        // Actually, we included a scale in saturnModel. Let's remove that scale from the ring to avoid double-scaling.
+        // We'll do ring separately:
+        // Start from saturn orbit/tilt only (no planet size scale):
+        {
+            float angle = planetRotation * planets[5].orbitSpeed * globalOrbitSpeedFactor;
+            ringModel = glm::mat4(1.0f);
+            ringModel = glm::rotate(ringModel, angle, glm::vec3(0.0f, 1.0f, 0.0f));
+            ringModel = glm::translate(ringModel, glm::vec3(planets[5].distance, 0.0f, 0.0f));
+            ringModel = glm::rotate(ringModel, glm::radians(planets[5].tilt), glm::vec3(0.0f, 0.0f, 1.0f));
+            // No further scale, since ring is defined in world units
+        }
+
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(ringModel));
+
+        glBindVertexArray(ringVAO);
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(ringIndices.size()), GL_UNSIGNED_INT, 0);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -522,6 +669,11 @@ int main() {
         glDeleteVertexArrays(1, &planet.orbitVAO);
         glDeleteBuffers(1, &planet.orbitVBO);
     }
+
+    // Delete ring buffers
+    glDeleteVertexArrays(1, &ringVAO);
+    glDeleteBuffers(1, &ringVBO);
+    glDeleteBuffers(1, &ringEBO);
 
     glDeleteProgram(shaderProgram);
     glDeleteProgram(sunShaderProgram);
