@@ -18,8 +18,8 @@
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
-// Camera variables
-glm::vec3 cameraPos = glm::vec3(-1200.0f, 200.0f, 0.0f);
+// Camera variables - moved closer to the sun and planets
+glm::vec3 cameraPos = glm::vec3(-500.0f, 100.0f, 0.0f);
 glm::vec3 cameraFront = glm::normalize(glm::vec3(1.0f, -0.1f, 0.0f)); // Looking towards positive x-axis
 glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
@@ -47,10 +47,12 @@ void checkShaderCompilation(GLuint shader);
 void checkProgramLinking(GLuint program);
 void generateCircle(float radius, int segments, std::vector<float>& vertices);
 unsigned int loadTexture(const std::string& path);
+
+// Modified to include texture coordinates for the ring
 void generateRing(float innerRadius, float outerRadius, int segments,
     std::vector<float>& vertices, std::vector<unsigned int>& indices);
 
-// --------------------- Added ring generation function -----------------------
+// --------------------- Ring generation function (with texture coords) -----------------------
 void generateRing(float innerRadius, float outerRadius, int segments,
     std::vector<float>& vertices, std::vector<unsigned int>& indices) {
     float angleIncrement = 2.0f * glm::pi<float>() / segments;
@@ -72,6 +74,7 @@ void generateRing(float innerRadius, float outerRadius, int segments,
         float ny = 1.0f;
         float nz = 0.0f;
 
+        float u = (float)i / (float)segments;
         // Outer vertex
         vertices.push_back(xOuter);
         vertices.push_back(0.0f);
@@ -79,6 +82,8 @@ void generateRing(float innerRadius, float outerRadius, int segments,
         vertices.push_back(nx);
         vertices.push_back(ny);
         vertices.push_back(nz);
+        vertices.push_back(u);
+        vertices.push_back(1.0f); // outer edge v=1
 
         // Inner vertex
         vertices.push_back(xInner);
@@ -87,6 +92,8 @@ void generateRing(float innerRadius, float outerRadius, int segments,
         vertices.push_back(nx);
         vertices.push_back(ny);
         vertices.push_back(nz);
+        vertices.push_back(u);
+        vertices.push_back(0.0f); // inner edge v=0
     }
 
     // Create indices for a triangle strip
@@ -102,6 +109,28 @@ void generateRing(float innerRadius, float outerRadius, int segments,
     }
 }
 // ---------------------------------------------------------------------------
+
+// Orbit Vertex Shader
+const char* orbitVertexShaderSource = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+void main() {
+    gl_Position = projection * view * model * vec4(aPos, 1.0);
+}
+)";
+
+// Orbit Fragment Shader
+const char* orbitFragmentShaderSource = R"(
+#version 330 core
+out vec4 FragColor;
+uniform vec3 orbitColor;
+void main() {
+    FragColor = vec4(orbitColor, 1.0);
+}
+)";
 
 // Planet Vertex Shader
 const char* vertexShaderSource = R"(
@@ -175,7 +204,7 @@ void main() {
 }
 )";
 
-// Sun Fragment Shader (animated "boiling" effect)
+// Sun Fragment Shader (with brightness factor)
 const char* sunFragmentShaderSource = R"(
 #version 330 core
 out vec4 FragColor;
@@ -192,8 +221,9 @@ void main() {
     float vOffset = cos(time * 0.7 + TexCoords.s * 10.0) * distortionStrength;
     vec2 distortedUV = TexCoords + vec2(uOffset, vOffset);
 
-    // The sun is emissive
-    FragColor = texture(sunTexture, distortedUV);
+    // Make the sun appear brighter by multiplying the texture color
+    vec4 baseColor = texture(sunTexture, distortedUV);
+    FragColor = baseColor * 1.5; // Increase brightness
 }
 )";
 
@@ -222,29 +252,35 @@ void main() {
 }
 )";
 
-// Orbit Vertex Shader
-const char* orbitVertexShaderSource = R"(
+// Ring Shaders
+const char* ringVertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aTexCoords;
+
+out vec2 TexCoords;
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
 void main() {
+    TexCoords = aTexCoords;
     gl_Position = projection * view * model * vec4(aPos, 1.0);
 }
 )";
 
-// Orbit Fragment Shader
-const char* orbitFragmentShaderSource = R"(
+const char* ringFragmentShaderSource = R"(
 #version 330 core
 out vec4 FragColor;
 
-uniform vec3 orbitColor;
+in vec2 TexCoords;
+uniform sampler2D ringTexture;
 
 void main() {
-    FragColor = vec4(orbitColor, 1.0);
+    vec4 texColor = texture(ringTexture, TexCoords);
+    FragColor = texColor;
 }
 )";
 
@@ -279,7 +315,7 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create a window
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Solar System with Boiling Sun Texture", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Solar System with Boiling Sun & Saturn Rings", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -299,6 +335,25 @@ int main() {
         std::cerr << "Failed to initialize GLAD" << std::endl;
         return -1;
     }
+
+    // Compile orbit shaders
+    GLuint orbitVertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(orbitVertexShader, 1, &orbitVertexShaderSource, nullptr);
+    glCompileShader(orbitVertexShader);
+    checkShaderCompilation(orbitVertexShader);
+
+    GLuint orbitFragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(orbitFragmentShader, 1, &orbitFragmentShaderSource, nullptr);
+    glCompileShader(orbitFragmentShader);
+    checkShaderCompilation(orbitFragmentShader);
+
+    GLuint orbitShaderProgram = glCreateProgram();
+    glAttachShader(orbitShaderProgram, orbitVertexShader);
+    glAttachShader(orbitShaderProgram, orbitFragmentShader);
+    glLinkProgram(orbitShaderProgram);
+    checkProgramLinking(orbitShaderProgram);
+    glDeleteShader(orbitVertexShader);
+    glDeleteShader(orbitFragmentShader);
 
     // Compile shaders for planets
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -357,24 +412,24 @@ int main() {
     glDeleteShader(starVertexShader);
     glDeleteShader(starFragmentShader);
 
-    // Compile shaders for orbits
-    GLuint orbitVertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(orbitVertexShader, 1, &orbitVertexShaderSource, nullptr);
-    glCompileShader(orbitVertexShader);
-    checkShaderCompilation(orbitVertexShader);
+    // Compile shaders for rings
+    GLuint ringVertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(ringVertexShader, 1, &ringVertexShaderSource, nullptr);
+    glCompileShader(ringVertexShader);
+    checkShaderCompilation(ringVertexShader);
 
-    GLuint orbitFragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(orbitFragmentShader, 1, &orbitFragmentShaderSource, nullptr);
-    glCompileShader(orbitFragmentShader);
-    checkShaderCompilation(orbitFragmentShader);
+    GLuint ringFragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(ringFragmentShader, 1, &ringFragmentShaderSource, nullptr);
+    glCompileShader(ringFragmentShader);
+    checkShaderCompilation(ringFragmentShader);
 
-    GLuint orbitShaderProgram = glCreateProgram();
-    glAttachShader(orbitShaderProgram, orbitVertexShader);
-    glAttachShader(orbitShaderProgram, orbitFragmentShader);
-    glLinkProgram(orbitShaderProgram);
-    checkProgramLinking(orbitShaderProgram);
-    glDeleteShader(orbitVertexShader);
-    glDeleteShader(orbitFragmentShader);
+    GLuint ringShaderProgram = glCreateProgram();
+    glAttachShader(ringShaderProgram, ringVertexShader);
+    glAttachShader(ringShaderProgram, ringFragmentShader);
+    glLinkProgram(ringShaderProgram);
+    checkProgramLinking(ringShaderProgram);
+    glDeleteShader(ringVertexShader);
+    glDeleteShader(ringFragmentShader);
 
     // Generate sphere data
     std::vector<float> sphereVertices;
@@ -403,11 +458,11 @@ int main() {
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
     glEnableVertexAttribArray(2);
 
-    // Generate stars data (expanded range)
+    // Generate stars data
     std::vector<float> starVertices;
     int numStars = 8000;
     for (int i = 0; i < numStars; ++i) {
-        float x = ((rand() % 8000) - 4000) / 1.0f; // Twice the previous range
+        float x = ((rand() % 8000) - 4000) / 1.0f;
         float y = ((rand() % 8000) - 4000) / 1.0f;
         float z = ((rand() % 8000) - 4000) / 1.0f;
         starVertices.push_back(x);
@@ -471,42 +526,65 @@ int main() {
         glEnableVertexAttribArray(0);
     }
 
-    // Generate ring for Saturn
-    float ringInnerRadius = 12.0f;
-    float ringOuterRadius = 20.0f;
-    int ringSegments = 100;
-    std::vector<float> ringVertices;
-    std::vector<unsigned int> ringIndices;
+    // Load ring texture for Saturn
+    // Using Saturn's planet texture just as a placeholder; ideally, you'd use a dedicated ring texture.
+    unsigned int ringTextureID = loadTexture("textures/saturn.jpg");
+    if (ringTextureID == 0) {
+        std::cerr << "Failed to load Saturn ring texture." << std::endl;
+    }
 
-    generateRing(ringInnerRadius, ringOuterRadius, ringSegments, ringVertices, ringIndices);
+    // We'll create multiple rings to simulate complexity:
+    struct RingSet {
+        float innerRadius;
+        float outerRadius;
+        GLuint VAO;
+        GLuint VBO;
+        GLuint EBO;
+        int indexCount;
+    };
 
-    GLuint ringVAO, ringVBO, ringEBO;
-    glGenVertexArrays(1, &ringVAO);
-    glGenBuffers(1, &ringVBO);
-    glGenBuffers(1, &ringEBO);
+    float saturnLocalScale = 10.0f; // Saturn scaled by this factor later
+    // Define several rings, each slightly larger than the last, to mimic Saturn's ring system
+    std::vector<RingSet> saturnRings = {
+        {1.1f, 1.5f, 0, 0, 0, 0},
+        {1.6f, 1.8f, 0, 0, 0, 0},
+        {1.85f, 1.9f, 0, 0, 0, 0}
+    };
 
-    glBindVertexArray(ringVAO);
+    for (auto& ring : saturnRings) {
+        std::vector<float> ringVertices;
+        std::vector<unsigned int> ringIndices;
+        generateRing(ring.innerRadius, ring.outerRadius, 100, ringVertices, ringIndices);
 
-    glBindBuffer(GL_ARRAY_BUFFER, ringVBO);
-    glBufferData(GL_ARRAY_BUFFER, ringVertices.size() * sizeof(float), ringVertices.data(), GL_STATIC_DRAW);
+        glGenVertexArrays(1, &ring.VAO);
+        glGenBuffers(1, &ring.VBO);
+        glGenBuffers(1, &ring.EBO);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ringEBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, ringIndices.size() * sizeof(unsigned int), ringIndices.data(), GL_STATIC_DRAW);
+        glBindVertexArray(ring.VAO);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, ring.VBO);
+        glBufferData(GL_ARRAY_BUFFER, ringVertices.size() * sizeof(float), ringVertices.data(), GL_STATIC_DRAW);
 
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ring.EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, ringIndices.size() * sizeof(unsigned int), ringIndices.data(), GL_STATIC_DRAW);
 
-    // Load sun texture
+        // Ring attributes: position, normal, texcoords
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+        glEnableVertexAttribArray(2);
+
+        ring.indexCount = (int)ringIndices.size();
+    }
+
     unsigned int sunTextureID = loadTexture("textures/sun.jpg");
     if (sunTextureID == 0) {
         std::cerr << "Failed to load sun texture." << std::endl;
     }
 
     float globalOrbitSpeedFactor = 0.05f;
-    // Slower planet self-rotation factor
     float globalSelfRotationSpeedFactor = 0.1f; // Reduced from 5.0f to slow down
 
     glEnable(GL_DEPTH_TEST);
@@ -521,6 +599,10 @@ int main() {
 
     // We'll also need the time uniform for the sun
     GLint sunTimeLoc = glGetUniformLocation(sunShaderProgram, "time");
+
+    // Ring shader configuration
+    glUseProgram(ringShaderProgram);
+    glUniform1i(glGetUniformLocation(ringShaderProgram, "ringTexture"), 0);
 
     // Sun rotation speed
     float sunRotationSpeed = 5.0f; // degrees per second
@@ -570,7 +652,6 @@ int main() {
         glUniformMatrix4fv(glGetUniformLocation(sunShaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
 
         glm::mat4 sunModel = glm::mat4(1.0f);
-        // Rotate the sun over time
         sunModel = glm::rotate(sunModel, glm::radians(sunRotationSpeed * currentFrame), glm::vec3(0.0f, 1.0f, 0.0f));
         sunModel = glm::scale(sunModel, glm::vec3(20.0f));
         glUniformMatrix4fv(glGetUniformLocation(sunShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(sunModel));
@@ -603,7 +684,6 @@ int main() {
             model = glm::translate(model, glm::vec3(planet.distance, 0.0f, 0.0f));
             model = glm::rotate(model, glm::radians(planet.tilt), glm::vec3(0.0f, 0.0f, 1.0f));
 
-            // Slower self-rotation
             float rotationAngle = currentFrame * planet.orbitSpeed * globalSelfRotationSpeedFactor;
             model = glm::rotate(model, rotationAngle, glm::vec3(0.0f, 1.0f, 0.0f));
             model = glm::scale(model, glm::vec3(planet.size * sizeMultiplier));
@@ -616,7 +696,7 @@ int main() {
             glBindVertexArray(sphereVAO);
             glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(sphereIndices.size()), GL_UNSIGNED_INT, 0);
 
-            // Save Saturn's model without the final self-rotation for the ring alignment
+            // Save Saturn's base model for the rings
             if (i == 5) {
                 glm::mat4 saturnBaseModel = glm::mat4(1.0f);
                 saturnBaseModel = glm::rotate(saturnBaseModel, angle, glm::vec3(0.0f, 1.0f, 0.0f));
@@ -627,15 +707,19 @@ int main() {
             }
         }
 
-        // Draw Saturn's ring
-        glUseProgram(orbitShaderProgram);
-        glUniformMatrix4fv(glGetUniformLocation(orbitShaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
-        glUniformMatrix4fv(glGetUniformLocation(orbitShaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-        glUniformMatrix4fv(glGetUniformLocation(orbitShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(saturnModel));
-        glUniform3f(glGetUniformLocation(orbitShaderProgram, "orbitColor"), 1.0f, 1.0f, 1.0f);
+        // Draw Saturn's rings
+        glUseProgram(ringShaderProgram);
+        glUniformMatrix4fv(glGetUniformLocation(ringShaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(glGetUniformLocation(ringShaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(ringShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(saturnModel));
 
-        glBindVertexArray(ringVAO);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(ringIndices.size()), GL_UNSIGNED_INT, 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, ringTextureID);
+
+        for (auto& ring : saturnRings) {
+            glBindVertexArray(ring.VAO);
+            glDrawElements(GL_TRIANGLES, ring.indexCount, GL_UNSIGNED_INT, 0);
+        }
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -655,16 +739,20 @@ int main() {
         glDeleteTextures(1, &planet.textureID);
     }
 
-    glDeleteVertexArrays(1, &ringVAO);
-    glDeleteBuffers(1, &ringVBO);
-    glDeleteBuffers(1, &ringEBO);
+    for (auto& ring : saturnRings) {
+        glDeleteVertexArrays(1, &ring.VAO);
+        glDeleteBuffers(1, &ring.VBO);
+        glDeleteBuffers(1, &ring.EBO);
+    }
 
     glDeleteProgram(shaderProgram);
     glDeleteProgram(sunShaderProgram);
     glDeleteProgram(starShaderProgram);
+    glDeleteProgram(ringShaderProgram);
     glDeleteProgram(orbitShaderProgram);
 
     glDeleteTextures(1, &sunTextureID);
+    glDeleteTextures(1, &ringTextureID);
 
     glfwTerminate();
     return 0;
