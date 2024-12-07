@@ -47,14 +47,13 @@ void checkShaderCompilation(GLuint shader);
 void checkProgramLinking(GLuint program);
 void generateCircle(float radius, int segments, std::vector<float>& vertices);
 unsigned int loadTexture(const std::string& path);
+void generateRing(float innerRadius, float outerRadius, int segments,
+    std::vector<float>& vertices, std::vector<unsigned int>& indices);
 
 // --------------------- Added ring generation function -----------------------
 void generateRing(float innerRadius, float outerRadius, int segments,
     std::vector<float>& vertices, std::vector<unsigned int>& indices) {
     float angleIncrement = 2.0f * glm::pi<float>() / segments;
-    // We will generate a triangle strip of outer/inner vertices
-    // Each segment generates two vertices on the outer radius and two on the inner radius
-    // We'll also provide normals pointing upward (0,1,0) since it's flat on the XZ plane.
 
     for (int i = 0; i <= segments; ++i) {
         float angle = i * angleIncrement;
@@ -104,7 +103,7 @@ void generateRing(float innerRadius, float outerRadius, int segments,
 }
 // ---------------------------------------------------------------------------
 
-// Vertex Shader source code (with normals and texcoords)
+// Planet Vertex Shader
 const char* vertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
@@ -127,7 +126,7 @@ void main() {
 }
 )";
 
-// Fragment Shader source code (with lighting and texture sampling)
+// Planet Fragment Shader
 const char* fragmentShaderSource = R"(
 #version 330 core
 out vec4 FragColor;
@@ -157,30 +156,44 @@ void main() {
 }
 )";
 
-
-// Sun Vertex Shader source code (no lighting)
+// Sun Vertex Shader (using texture coords)
 const char* sunVertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aNormal; // unused but must be declared since sphere data includes it
+layout (location = 2) in vec2 aTexCoords;
+
+out vec2 TexCoords;
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
 void main() {
+    TexCoords = aTexCoords;
     gl_Position = projection * view * model * vec4(aPos, 1.0);
 }
 )";
 
-// Sun Fragment Shader source code (emissive)
+// Sun Fragment Shader (animated "boiling" effect)
 const char* sunFragmentShaderSource = R"(
 #version 330 core
 out vec4 FragColor;
 
-uniform vec3 sunColor;
+in vec2 TexCoords;
+
+uniform sampler2D sunTexture;
+uniform float time;
 
 void main() {
-    FragColor = vec4(sunColor, 1.0);
+    // Distortion parameters for "boiling"
+    float distortionStrength = 0.02;
+    float uOffset = sin(time * 0.5 + TexCoords.t * 10.0) * distortionStrength;
+    float vOffset = cos(time * 0.7 + TexCoords.s * 10.0) * distortionStrength;
+    vec2 distortedUV = TexCoords + vec2(uOffset, vOffset);
+
+    // The sun is emissive
+    FragColor = texture(sunTexture, distortedUV);
 }
 )";
 
@@ -235,7 +248,6 @@ void main() {
 }
 )";
 
-// --------------------- Planet Struct with Constructor ---------------------
 struct Planet {
     float distance;            // Scaled distance from the sun
     float size;                // Scaled size of the planet
@@ -248,13 +260,11 @@ struct Planet {
     int orbitVertexCount;      // Number of vertices in orbit path
     std::string texturePath;   // Path to the texture image
 
-    // Constructor for ease of initialization
     Planet(float dist, float sz, float orbSpeed, const glm::vec3& col, float tl, const std::string& texPath)
         : distance(dist), size(sz), orbitSpeed(orbSpeed), color(col), tilt(tl),
         textureID(0), orbitVAO(0), orbitVBO(0), orbitVertexCount(0),
         texturePath(texPath) {}
 };
-// ---------------------------------------------------------------------------
 
 int main() {
     // Initialize GLFW
@@ -266,10 +276,10 @@ int main() {
     // Set OpenGL version and profile
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_CORE_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create a window
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Solar System with Textured Planets", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Solar System with Boiling Sun Texture", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -290,8 +300,7 @@ int main() {
         return -1;
     }
 
-    // Compile shaders
-    // Planet shaders
+    // Compile shaders for planets
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, nullptr);
     glCompileShader(vertexShader);
@@ -302,7 +311,6 @@ int main() {
     glCompileShader(fragmentShader);
     checkShaderCompilation(fragmentShader);
 
-    // Link shaders to create a shader program
     GLuint shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
@@ -311,7 +319,7 @@ int main() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Sun shaders
+    // Compile shaders for sun
     GLuint sunVertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(sunVertexShader, 1, &sunVertexShaderSource, nullptr);
     glCompileShader(sunVertexShader);
@@ -330,7 +338,7 @@ int main() {
     glDeleteShader(sunVertexShader);
     glDeleteShader(sunFragmentShader);
 
-    // Star shaders
+    // Compile shaders for stars
     GLuint starVertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(starVertexShader, 1, &starVertexShaderSource, nullptr);
     glCompileShader(starVertexShader);
@@ -349,7 +357,7 @@ int main() {
     glDeleteShader(starVertexShader);
     glDeleteShader(starFragmentShader);
 
-    // Orbit shaders
+    // Compile shaders for orbits
     GLuint orbitVertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(orbitVertexShader, 1, &orbitVertexShaderSource, nullptr);
     glCompileShader(orbitVertexShader);
@@ -368,12 +376,12 @@ int main() {
     glDeleteShader(orbitVertexShader);
     glDeleteShader(orbitFragmentShader);
 
-    // Generate sphere data for sun and planets (with normals and texcoords)
+    // Generate sphere data
     std::vector<float> sphereVertices;
     std::vector<unsigned int> sphereIndices;
     generateSphere(1.0f, 50, 50, sphereVertices, sphereIndices);
 
-    // VAO and VBO for the spheres
+    // VAO and VBO for spheres
     GLuint sphereVAO, sphereVBO, sphereEBO;
     glGenVertexArrays(1, &sphereVAO);
     glGenBuffers(1, &sphereVBO);
@@ -387,23 +395,21 @@ int main() {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphereEBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sphereIndices.size() * sizeof(unsigned int), sphereIndices.data(), GL_STATIC_DRAW);
 
-    // Position attribute
+    // Sphere attributes: position, normal, texcoords
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    // Normal attribute
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
-    // Texture Coordinates attribute
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
     glEnableVertexAttribArray(2);
 
-    // Generate stars data
+    // Generate stars data (expanded range)
     std::vector<float> starVertices;
-    int numStars = 8000; // Increased number of stars
+    int numStars = 8000;
     for (int i = 0; i < numStars; ++i) {
-        float x = ((rand() % 4000) - 2000) / 1.0f; // Increased range
-        float y = ((rand() % 4000) - 2000) / 1.0f;
-        float z = ((rand() % 4000) - 2000) / 1.0f;
+        float x = ((rand() % 8000) - 4000) / 1.0f; // Twice the previous range
+        float y = ((rand() % 8000) - 4000) / 1.0f;
+        float z = ((rand() % 8000) - 4000) / 1.0f;
         starVertices.push_back(x);
         starVertices.push_back(y);
         starVertices.push_back(z);
@@ -419,30 +425,21 @@ int main() {
     glBindBuffer(GL_ARRAY_BUFFER, starsVBO);
     glBufferData(GL_ARRAY_BUFFER, starVertices.size() * sizeof(float), starVertices.data(), GL_STATIC_DRAW);
 
-    // Position attribute
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
     // Scaling factors
     float distanceScale = 2000.0f / 30.05f; // Spaces out planets further
 
-    // Planet data: scaled distance from sun, size, angular speed, color, tilt, texture path
+    // Planets definition
     std::vector<Planet> planets = {
-        // Mercury
         Planet(0.39f * distanceScale, 0.2f, 3.2f, glm::vec3(0.7f, 0.7f, 0.7f), 0.034f, "textures/mercury.jpg"),
-        // Venus
         Planet(0.72f * distanceScale, 0.3f, 2.3f, glm::vec3(0.9f, 0.7f, 0.3f), 177.4f, "textures/venus.jpg"),
-        // Earth
         Planet(1.00f * distanceScale, 0.4f, 2.0f, glm::vec3(0.2f, 0.5f, 1.0f), 23.5f, "textures/earth.jpg"),
-        // Mars
         Planet(1.52f * distanceScale, 0.24f, 1.6f, glm::vec3(0.8f, 0.3f, 0.2f), 25.0f, "textures/mars.jpg"),
-        // Jupiter
         Planet(5.20f * distanceScale, 1.2f, 0.8f, glm::vec3(0.9f, 0.6f, 0.3f), 3.1f, "textures/jupiter.jpg"),
-        // Saturn
         Planet(9.58f * distanceScale, 1.0f, 0.64f, glm::vec3(0.9f, 0.8f, 0.5f), 26.7f, "textures/saturn.jpg"),
-        // Uranus
         Planet(19.20f * distanceScale, 0.45f, 0.45f, glm::vec3(0.5f, 0.8f, 0.9f), 97.8f, "textures/uranus.jpg"),
-        // Neptune
         Planet(30.05f * distanceScale, 0.4f, 0.36f, glm::vec3(0.3f, 0.5f, 0.9f), 28.3f, "textures/neptune.jpg")
     };
 
@@ -474,12 +471,9 @@ int main() {
         glEnableVertexAttribArray(0);
     }
 
-    // --------------------- Ring for Saturn ---------------------
-    // We'll assume Saturn is at index 5
-    // We'll create a ring around it
-    // Define ring inner and outer radius relative to Saturn
-    float ringInnerRadius = 12.0f;  // Just a bit larger than Saturn
-    float ringOuterRadius = 20.0f;  // Wider ring
+    // Generate ring for Saturn
+    float ringInnerRadius = 12.0f;
+    float ringOuterRadius = 20.0f;
     int ringSegments = 100;
     std::vector<float> ringVertices;
     std::vector<unsigned int> ringIndices;
@@ -499,162 +493,146 @@ int main() {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ringEBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, ringIndices.size() * sizeof(unsigned int), ringIndices.data(), GL_STATIC_DRAW);
 
-    // Ring vertex format: position (3 floats) + normal (3 floats) = 6 floats total
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    // Global speed factors for orbit and self-rotation
-    float globalOrbitSpeedFactor = 0.05f; // Slower orbital motion
-    float globalSelfRotationSpeedFactor = 5.0f; // Adjust self-rotation
+    // Load sun texture
+    unsigned int sunTextureID = loadTexture("textures/sun.jpg");
+    if (sunTextureID == 0) {
+        std::cerr << "Failed to load sun texture." << std::endl;
+    }
 
-    // Enable depth test
+    float globalOrbitSpeedFactor = 0.05f;
+    // Slower planet self-rotation factor
+    float globalSelfRotationSpeedFactor = 0.1f; // Reduced from 5.0f to slow down
+
     glEnable(GL_DEPTH_TEST);
 
     // Configure shader program for planets
     glUseProgram(shaderProgram);
-    glUniform1i(glGetUniformLocation(shaderProgram, "texture1"), 0); // Set texture unit 0
+    glUniform1i(glGetUniformLocation(shaderProgram, "texture1"), 0);
 
-    // Main render loop
+    // Configure shader program for sun
+    glUseProgram(sunShaderProgram);
+    glUniform1i(glGetUniformLocation(sunShaderProgram, "sunTexture"), 0);
+
+    // We'll also need the time uniform for the sun
+    GLint sunTimeLoc = glGetUniformLocation(sunShaderProgram, "time");
+
+    // Sun rotation speed
+    float sunRotationSpeed = 5.0f; // degrees per second
+
     while (!glfwWindowShouldClose(window)) {
-        // Time calculations
         float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        // Update planet rotation
-        planetRotation += deltaTime * 1.0f; // Base time increment
+        planetRotation += deltaTime * 1.0f;
 
         processInput(window, deltaTime);
 
-        // Clear buffers
-        glClearColor(0.0f, 0.0f, 0.02f, 1.0f); // Nearly black background
+        glClearColor(0.0f, 0.0f, 0.02f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Set view and projection matrices
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
         glm::mat4 projection = glm::perspective(glm::radians(60.0f),
-            (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 10000.0f); // Increased far plane
+            (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 10000.0f);
 
-        // Draw stars using the star shader program
+        // Draw stars
         glUseProgram(starShaderProgram);
-        int starViewLoc = glGetUniformLocation(starShaderProgram, "view");
-        int starProjectionLoc = glGetUniformLocation(starShaderProgram, "projection");
-        glUniformMatrix4fv(starViewLoc, 1, GL_FALSE, glm::value_ptr(view));
-        glUniformMatrix4fv(starProjectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
-
-        int starColorLoc = glGetUniformLocation(starShaderProgram, "starColor");
-        glUniform3f(starColorLoc, 1.0f, 1.0f, 1.0f); // White stars
+        glUniformMatrix4fv(glGetUniformLocation(starShaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(glGetUniformLocation(starShaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniform3f(glGetUniformLocation(starShaderProgram, "starColor"), 1.0f, 1.0f, 1.0f);
 
         glBindVertexArray(starsVAO);
-        glPointSize(2.0f); // Increased point size
+        glPointSize(2.0f);
         glDrawArrays(GL_POINTS, 0, numStars);
 
         // Draw orbits
         glUseProgram(orbitShaderProgram);
-        int orbitModelLoc = glGetUniformLocation(orbitShaderProgram, "model");
-        int orbitViewLoc = glGetUniformLocation(orbitShaderProgram, "view");
-        int orbitProjectionLoc = glGetUniformLocation(orbitShaderProgram, "projection");
-        int orbitColorLoc = glGetUniformLocation(orbitShaderProgram, "orbitColor");
-
-        glUniformMatrix4fv(orbitViewLoc, 1, GL_FALSE, glm::value_ptr(view));
-        glUniformMatrix4fv(orbitProjectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
-        glUniform3f(orbitColorLoc, 1.0f, 1.0f, 1.0f); // White orbit paths
+        glUniformMatrix4fv(glGetUniformLocation(orbitShaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(glGetUniformLocation(orbitShaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniform3f(glGetUniformLocation(orbitShaderProgram, "orbitColor"), 1.0f, 1.0f, 1.0f);
 
         for (const auto& planet : planets) {
-            glm::mat4 model = glm::mat4(1.0f);
-            glUniformMatrix4fv(orbitModelLoc, 1, GL_FALSE, glm::value_ptr(model));
-
+            glm::mat4 orbitModel = glm::mat4(1.0f);
+            glUniformMatrix4fv(glGetUniformLocation(orbitShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(orbitModel));
             glBindVertexArray(planet.orbitVAO);
             glDrawArrays(GL_LINE_LOOP, 0, planet.orbitVertexCount);
         }
 
-        // Draw sun using the sun shader program
+        // Draw sun (with animation)
         glUseProgram(sunShaderProgram);
-        int sunModelLoc = glGetUniformLocation(sunShaderProgram, "model");
-        int sunViewLoc = glGetUniformLocation(sunShaderProgram, "view");
-        int sunProjectionLoc = glGetUniformLocation(sunShaderProgram, "projection");
-        int sunColorLoc = glGetUniformLocation(sunShaderProgram, "sunColor");
-
-        glUniformMatrix4fv(sunViewLoc, 1, GL_FALSE, glm::value_ptr(view));
-        glUniformMatrix4fv(sunProjectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(sunShaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(glGetUniformLocation(sunShaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
 
         glm::mat4 sunModel = glm::mat4(1.0f);
-        sunModel = glm::scale(sunModel, glm::vec3(20.0f)); // Sun size
-        glUniformMatrix4fv(sunModelLoc, 1, GL_FALSE, glm::value_ptr(sunModel));
+        // Rotate the sun over time
+        sunModel = glm::rotate(sunModel, glm::radians(sunRotationSpeed * currentFrame), glm::vec3(0.0f, 1.0f, 0.0f));
+        sunModel = glm::scale(sunModel, glm::vec3(20.0f));
+        glUniformMatrix4fv(glGetUniformLocation(sunShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(sunModel));
 
-        glUniform3f(sunColorLoc, 1.0f, 0.9f, 0.0f); // Yellow sun
+        // Pass time for the boiling effect
+        glUniform1f(sunTimeLoc, currentFrame);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, sunTextureID);
 
         glBindVertexArray(sphereVAO);
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(sphereIndices.size()), GL_UNSIGNED_INT, 0);
 
-        // Draw planets using the main shader program
+        // Draw planets
         glUseProgram(shaderProgram);
-        int viewLoc = glGetUniformLocation(shaderProgram, "view");
-        int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
-        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-        glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
         glUniform3fv(glGetUniformLocation(shaderProgram, "lightPos"), 1, glm::value_ptr(glm::vec3(0.0f)));
         glUniform3fv(glGetUniformLocation(shaderProgram, "viewPos"), 1, glm::value_ptr(cameraPos));
-
         int modelLoc = glGetUniformLocation(shaderProgram, "model");
-        // int colorLoc = glGetUniformLocation(shaderProgram, "objectColor"); // Not needed with textures
 
-        // Planet size multiplier
-        float sizeMultiplier = 10.0f; // Increased planet sizes
-
-        // We'll store Saturn's transform for the ring
+        float sizeMultiplier = 10.0f;
         glm::mat4 saturnModel;
-        glm::vec3 saturnColor;
-        {
-            // Render planets
-            for (size_t i = 0; i < planets.size(); ++i) {
-                const auto& planet = planets[i];
-                glm::mat4 model = glm::mat4(1.0f);
-                float angle = planetRotation * planet.orbitSpeed * globalOrbitSpeedFactor;
-                model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
-                model = glm::translate(model, glm::vec3(planet.distance, 0.0f, 0.0f));
-                model = glm::rotate(model, glm::radians(planet.tilt), glm::vec3(0.0f, 0.0f, 1.0f));
 
-                // Planet self-rotation
-                float rotationAngle = currentFrame * planet.orbitSpeed * globalSelfRotationSpeedFactor;
-                model = glm::rotate(model, rotationAngle, glm::vec3(0.0f, 1.0f, 0.0f));
+        for (size_t i = 0; i < planets.size(); ++i) {
+            const auto& planet = planets[i];
+            glm::mat4 model = glm::mat4(1.0f);
+            float angle = planetRotation * planet.orbitSpeed * globalOrbitSpeedFactor;
+            model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
+            model = glm::translate(model, glm::vec3(planet.distance, 0.0f, 0.0f));
+            model = glm::rotate(model, glm::radians(planet.tilt), glm::vec3(0.0f, 0.0f, 1.0f));
 
-                model = glm::scale(model, glm::vec3(planet.size * sizeMultiplier));
+            // Slower self-rotation
+            float rotationAngle = currentFrame * planet.orbitSpeed * globalSelfRotationSpeedFactor;
+            model = glm::rotate(model, rotationAngle, glm::vec3(0.0f, 1.0f, 0.0f));
+            model = glm::scale(model, glm::vec3(planet.size * sizeMultiplier));
 
-                glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+            glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
-                // Bind the planet's texture
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, planet.textureID);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, planet.textureID);
 
-                glBindVertexArray(sphereVAO);
-                glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(sphereIndices.size()), GL_UNSIGNED_INT, 0);
+            glBindVertexArray(sphereVAO);
+            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(sphereIndices.size()), GL_UNSIGNED_INT, 0);
 
-                // If this is Saturn (index 5), save the transform and color for the ring
-                if (i == 5) { // Saturn is the 6th planet (0-based index)
-                    // Saturn was built by: rotate(angle), translate(distance), rotate(tilt), rotate(rotationAngle), scale
-                    // We need the same transformations without the last rotation for self rotation if we don't want the ring spinning oddly.
-                    // Let's keep it simple: include all rotations except the planet's final self-rotation, so the ring stays aligned with the planet.
-                    glm::mat4 saturnBaseModel = glm::mat4(1.0f);
-                    saturnBaseModel = glm::rotate(saturnBaseModel, angle, glm::vec3(0.0f, 1.0f, 0.0f));
-                    saturnBaseModel = glm::translate(saturnBaseModel, glm::vec3(planet.distance, 0.0f, 0.0f));
-                    saturnBaseModel = glm::rotate(saturnBaseModel, glm::radians(planet.tilt), glm::vec3(0.0f, 0.0f, 1.0f));
-                    saturnBaseModel = glm::scale(saturnBaseModel, glm::vec3(sizeMultiplier));
-                    saturnModel = saturnBaseModel;
-                    saturnColor = planet.color;
-                }
+            // Save Saturn's model without the final self-rotation for the ring alignment
+            if (i == 5) {
+                glm::mat4 saturnBaseModel = glm::mat4(1.0f);
+                saturnBaseModel = glm::rotate(saturnBaseModel, angle, glm::vec3(0.0f, 1.0f, 0.0f));
+                saturnBaseModel = glm::translate(saturnBaseModel, glm::vec3(planet.distance, 0.0f, 0.0f));
+                saturnBaseModel = glm::rotate(saturnBaseModel, glm::radians(planet.tilt), glm::vec3(0.0f, 0.0f, 1.0f));
+                saturnBaseModel = glm::scale(saturnBaseModel, glm::vec3(sizeMultiplier));
+                saturnModel = saturnBaseModel;
             }
         }
 
-        // Draw Saturn's ring using the orbit shader program
+        // Draw Saturn's ring
         glUseProgram(orbitShaderProgram);
         glUniformMatrix4fv(glGetUniformLocation(orbitShaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(glGetUniformLocation(orbitShaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
         glUniformMatrix4fv(glGetUniformLocation(orbitShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(saturnModel));
-        glUniform3f(glGetUniformLocation(orbitShaderProgram, "orbitColor"), 1.0f, 1.0f, 1.0f); // White ring
+        glUniform3f(glGetUniformLocation(orbitShaderProgram, "orbitColor"), 1.0f, 1.0f, 1.0f);
 
         glBindVertexArray(ringVAO);
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(ringIndices.size()), GL_UNSIGNED_INT, 0);
@@ -677,7 +655,6 @@ int main() {
         glDeleteTextures(1, &planet.textureID);
     }
 
-    // Delete ring buffers
     glDeleteVertexArrays(1, &ringVAO);
     glDeleteBuffers(1, &ringVBO);
     glDeleteBuffers(1, &ringEBO);
@@ -687,16 +664,16 @@ int main() {
     glDeleteProgram(starShaderProgram);
     glDeleteProgram(orbitShaderProgram);
 
+    glDeleteTextures(1, &sunTextureID);
+
     glfwTerminate();
     return 0;
 }
 
-// Callback for resizing the window
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
 }
 
-// Mouse callback for camera rotation
 void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     if (firstMouse) {
         lastX = static_cast<float>(xpos);
@@ -705,24 +682,22 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     }
 
     float xoffset = static_cast<float>(xpos) - lastX;
-    float yoffset = lastY - static_cast<float>(ypos); // Reversed since y-coordinates go from bottom to top
+    float yoffset = lastY - static_cast<float>(ypos);
     lastX = static_cast<float>(xpos);
     lastY = static_cast<float>(ypos);
 
-    float sensitivity = 0.1f; // Mouse sensitivity
+    float sensitivity = 0.1f;
     xoffset *= sensitivity;
     yoffset *= sensitivity;
 
     yaw += xoffset;
     pitch += yoffset;
 
-    // Constrain the pitch to avoid flipping
     if (pitch > 89.0f)
         pitch = 89.0f;
     if (pitch < -89.0f)
         pitch = -89.0f;
 
-    // Update the camera direction
     glm::vec3 front;
     front.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
     front.y = sin(glm::radians(pitch));
@@ -730,7 +705,6 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     cameraFront = glm::normalize(front);
 }
 
-// Process keyboard input
 void processInput(GLFWwindow* window, float deltaTime) {
     float velocity = cameraSpeed * deltaTime;
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -738,30 +712,25 @@ void processInput(GLFWwindow* window, float deltaTime) {
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
         cameraPos -= cameraFront * velocity;
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        cameraPos -=
-        glm::normalize(glm::cross(cameraFront, cameraUp)) * velocity;
+        cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * velocity;
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        cameraPos +=
-        glm::normalize(glm::cross(cameraFront, cameraUp)) * velocity;
+        cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * velocity;
 
-    // Vertical movement
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
         cameraPos += cameraUp * velocity;
     if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
         cameraPos -= cameraUp * velocity;
 
-    // Escape to close the window
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 }
 
-// Function to generate sphere vertices and indices (with normals and texcoords)
 void generateSphere(float radius, unsigned int rings, unsigned int sectors,
     std::vector<float>& vertices,
     std::vector<unsigned int>& indices) {
     const float PI = 3.14159265359f;
-    float const R = 1.0f / static_cast<float>(rings - 1);
-    float const S = 1.0f / static_cast<float>(sectors - 1);
+    float const R = 1.0f / (float)(rings - 1);
+    float const S = 1.0f / (float)(sectors - 1);
 
     for (unsigned int r = 0; r < rings; ++r) {
         for (unsigned int s = 0; s < sectors; ++s) {
@@ -769,19 +738,16 @@ void generateSphere(float radius, unsigned int rings, unsigned int sectors,
             float x = cos(2.0f * PI * s * S) * sin(PI * r * R);
             float z = sin(2.0f * PI * s * S) * sin(PI * r * R);
 
-            // Position
             vertices.push_back(x * radius);
             vertices.push_back(y * radius);
             vertices.push_back(z * radius);
 
-            // Normal (normalized position vector)
             vertices.push_back(x);
             vertices.push_back(y);
             vertices.push_back(z);
 
-            // Texture Coordinates
-            float u = static_cast<float>(s) / static_cast<float>(sectors - 1);
-            float v = static_cast<float>(r) / static_cast<float>(rings - 1);
+            float u = (float)s / (float)(sectors - 1);
+            float v = (float)r / (float)(rings - 1);
             vertices.push_back(u);
             vertices.push_back(v);
         }
@@ -800,7 +766,6 @@ void generateSphere(float radius, unsigned int rings, unsigned int sectors,
     }
 }
 
-// Function to generate circle vertices for orbit paths
 void generateCircle(float radius, int segments, std::vector<float>& vertices) {
     const float PI = 3.14159265359f;
     float angleIncrement = 2.0f * PI / segments;
@@ -814,7 +779,6 @@ void generateCircle(float radius, int segments, std::vector<float>& vertices) {
     }
 }
 
-// Function to check shader compilation errors
 void checkShaderCompilation(GLuint shader) {
     GLint success;
     GLchar infoLog[512];
@@ -825,7 +789,6 @@ void checkShaderCompilation(GLuint shader) {
     }
 }
 
-// Function to check program linking errors
 void checkProgramLinking(GLuint program) {
     GLint success;
     GLchar infoLog[512];
@@ -836,13 +799,12 @@ void checkProgramLinking(GLuint program) {
     }
 }
 
-// Function to load a texture from file and return the texture ID
 unsigned int loadTexture(const std::string& path) {
     unsigned int textureID;
     glGenTextures(1, &textureID);
 
     int width, height, nrChannels;
-    stbi_set_flip_vertically_on_load(true); // Flip the image vertically if needed
+    stbi_set_flip_vertically_on_load(true);
     unsigned char* data = stbi_load(path.c_str(), &width, &height, &nrChannels, 0);
     if (data) {
         GLenum format;
@@ -854,7 +816,7 @@ unsigned int loadTexture(const std::string& path) {
             format = GL_RGBA;
 
         glBindTexture(GL_TEXTURE_2D, textureID);
-        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        glTexImage2D(GL_TEXTURE_2D, 0, (GLint)format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
         glGenerateMipmap(GL_TEXTURE_2D);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
