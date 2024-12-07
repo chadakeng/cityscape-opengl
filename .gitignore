@@ -40,27 +40,13 @@
 *.exe
 *.out
 
-# Dependency directories (GLAD, GLFW, etc.)
-/dependencies/*
-/glad.c
-
-# CMake build directories
-/build/
-/cmake-build-*/
-
 # Visual Studio specific
-*.vcxproj*
 *.pdb
 *.suo
 *.user
 *.userosscache
-*.sln
 *.VC.db
 *.VC.opendb
-
-# IDE specific
-.vscode/
-.idea/
 
 # Visual Studio temporary files
 .vs/
